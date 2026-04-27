@@ -1,659 +1,477 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import AdminPanel from "./AdminPanel";
+import { loadContent, DEFAULT_CONTENT, HpContent, FixArticle, TileType, MenuItem } from "@/lib/content";
 
-interface Panel {
-  id: number;
-  title: string;
-  category: string;
-  src: string;
-  color: string;
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number; // 1 → 0
+  size: number;
+  rotation: number;
+  rotSpeed: number;
 }
 
-const PANELS: Panel[] = [
-  {
-    id: 1,
-    title: "Neural Dreams",
-    category: "AI / Tech",
-    src: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&q=80",
-    color: "#CC0000",
-  },
-  {
-    id: 2,
-    title: "Code & Create",
-    category: "Dev Projects",
-    src: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80",
-    color: "#CC0000",
-  },
-  {
-    id: 3,
-    title: "Design Lab",
-    category: "Visual Art",
-    src: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80",
-    color: "#CC0000",
-  },
-  {
-    id: 4,
-    title: "Music & Sound",
-    category: "Audio",
-    src: "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&q=80",
-    color: "#CC0000",
-  },
-  {
-    id: 5,
-    title: "Future Vision",
-    category: "Concepts",
-    src: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&q=80",
-    color: "#CC0000",
-  },
-];
+function useSparkleCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const particles = useRef<Particle[]>([]);
+  const rafRef = useRef<number | null>(null);
+  const isTouch = useRef(false);
 
-// tx/ty = translate from viewport center, tz = depth px, ry = rotateY, w/h = fixed px size
-// x values kept ≤ ±30vw so panels stay fully on-screen down to ~900px wide viewports
-const PANEL_LAYOUT = [
-  { tx: "-30vw", ty: "60px", tz: -150, ry:  18, w: 300, h: 200 }, // far left
-  { tx: "-14vw", ty: "20px", tz: -300, ry:   8, w: 270, h: 178 }, // center-left
-  { tx:      "0", ty: "80px", tz: -450, ry:   0, w: 240, h: 158 }, // dead center, furthest back
-  { tx:  "14vw", ty: "10px", tz: -300, ry:  -8, w: 270, h: 178 }, // center-right
-  { tx:  "30vw", ty: "50px", tz: -150, ry: -18, w: 300, h: 200 }, // far right
-];
+  const spawnParticles = useCallback((x: number, y: number) => {
+    for (let i = 0; i < 3; i++) {
+      particles.current.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 3,
+        vy: -Math.random() * 3 - 1,
+        life: 1,
+        size: Math.random() * 6 + 4,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.2,
+      });
+    }
+  }, []);
 
-const NAV_LINKS = ["FILMS", "MUSIC", "DESIGN", "GAMING", "PLAYGROUND", "ABOUT", "CONTACT"];
+  // Draw a 4-point star
+  const drawStar = (ctx: CanvasRenderingContext2D, x: number, y: number, r: number, rot: number) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const angle = (i * Math.PI) / 4;
+      const rad = i % 2 === 0 ? r : r * 0.4;
+      if (i === 0) ctx.moveTo(Math.cos(angle) * rad, Math.sin(angle) * rad);
+      else ctx.lineTo(Math.cos(angle) * rad, Math.sin(angle) * rad);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
 
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
+  useEffect(() => {
+    isTouch.current = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    if (isTouch.current) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const onMouseMove = (e: MouseEvent) => spawnParticles(e.clientX, e.clientY);
+    window.addEventListener("mousemove", onMouseMove);
+
+    const loop = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      particles.current = particles.current.filter(p => p.life > 0);
+      for (const p of particles.current) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.05; // gentle gravity
+        p.life -= 0.035;
+        p.rotation += p.rotSpeed;
+
+        const alpha = Math.max(0, p.life);
+        const hue = 270 + (1 - alpha) * 30; // deep purple → violet
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = `hsl(${hue}, 90%, 70%)`;
+        drawStar(ctx, p.x, p.y, p.size * alpha, p.rotation);
+      }
+      ctx.globalAlpha = 1;
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMouseMove);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [spawnParticles]);
+
+  return canvasRef;
+}
+
+const TILE_GRID: Record<TileType, { col: string; row: string; titleSize: string }> = {
+  wide:  { col:"span 6",  row:"span 3", titleSize:"clamp(1.6rem,3vw,2.8rem)" },
+  tall:  { col:"span 4",  row:"span 5", titleSize:"clamp(1.2rem,2.5vw,2rem)" },
+  mini2: { col:"span 2",  row:"span 3", titleSize:"clamp(0.8rem,1.5vw,1.1rem)" },
+  thin:  { col:"span 8",  row:"span 2", titleSize:"clamp(1rem,2vw,1.6rem)" },
+  sq:    { col:"span 4",  row:"span 3", titleSize:"clamp(1.1rem,2vw,1.7rem)" },
+  mini:  { col:"span 3",  row:"span 2", titleSize:"clamp(0.75rem,1.3vw,1rem)" },
+  med:   { col:"span 6",  row:"span 4", titleSize:"clamp(1.4rem,2.8vw,2.4rem)" },
+  strip: { col:"span 12", row:"span 2", titleSize:"clamp(1rem,2vw,1.5rem)" },
+};
+
+function FixationsPage({ onBack, tiles }: { onBack: () => void; tiles: FixArticle[] }) {
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:50, background:"#0a0a0a", overflowY:"auto", animation:"fadeIn 1s ease", WebkitOverflowScrolling:"touch" }}>
+
+      <style>{`
+        .fix-tile { position:relative; padding:clamp(18px,3vw,36px); display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; transition:background 0.25s ease; border:1px solid rgba(255,255,255,0.05); box-sizing:border-box; }
+        .fix-tile::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:#c0392b; transform:scaleY(0); transform-origin:bottom; transition:transform 0.3s ease; }
+        .fix-tile:hover { background:rgba(255,255,255,0.03) !important; }
+        .fix-tile:hover::before { transform:scaleY(1); }
+        .fix-tile:hover .fix-num { color:rgba(192,57,43,0.12) !important; }
+        .fix-tile:hover .fix-arrow { opacity:1 !important; }
+        .fix-arrow { opacity:0; transition:opacity 0.25s ease; position:absolute; bottom:16px; right:20px; width:32px; height:32px; border:1px solid rgba(255,255,255,0.2); border-radius:50%; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,0.6); font-size:13px; }
+        .fix-num { position:absolute; bottom:8px; right:16px; font-family:'Anton',sans-serif; font-size:clamp(60px,10vw,120px); color:rgba(255,255,255,0.04); line-height:1; user-select:none; pointer-events:none; transition:color 0.3s ease; }
+        @media(max-width:600px){ .fix-grid { grid-template-columns:repeat(4,1fr) !important; } .t-wide,.t-tall,.t-mini2,.t-sq,.t-med { grid-column:span 4 !important; grid-row:span 2 !important; } .t-thin { grid-column:span 4 !important; } .t-mini { grid-column:span 2 !important; } .t-strip { grid-column:span 4 !important; } }
+      `}</style>
+
+      {/* Back */}
+      <button onClick={onBack} style={{ position:"fixed", top:"20px", left:"20px", zIndex:60, background:"none", border:"none", color:"rgba(255,255,255,0.35)", fontFamily:"'Barlow Condensed',sans-serif", fontSize:"11px", letterSpacing:"0.3em", textTransform:"uppercase", cursor:"pointer", transition:"color 0.2s" }}
+        onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.35)"}>← BACK</button>
+
+      {/* Hero */}
+      <div style={{ padding:"clamp(72px,12vw,130px) clamp(20px,5vw,64px) clamp(36px,5vw,64px)", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"10px", letterSpacing:"0.35em", color:"#c0392b", textTransform:"uppercase", marginBottom:"18px" }}>02 — FIXATIONS</div>
+        <h1 style={{ margin:0, lineHeight:0.88 }}>
+          <span style={{ fontFamily:"'Anton','Impact',sans-serif", fontSize:"clamp(3.5rem,13vw,12rem)", color:"#fff" }}>FIX</span>
+          <span style={{ fontFamily:"'Anton','Impact',sans-serif", fontSize:"clamp(3.5rem,13vw,12rem)", color:"transparent", WebkitTextStroke:"1.5px rgba(255,255,255,0.2)" }}>ATIONS</span>
+        </h1>
+        <p style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(12px,1.4vw,15px)", color:"rgba(255,255,255,0.35)", letterSpacing:"0.04em", marginTop:"24px", maxWidth:"320px", lineHeight:1.65 }}>
+          The things I can&apos;t stop thinking about. Collected, categorized, still unresolved.
+        </p>
+      </div>
+
+      {/* Mosaic grid */}
+      <div style={{ padding:"0 clamp(48px,6vw,96px)", maxWidth:"1400px", margin:"0 auto", boxSizing:"border-box" }}>
+      <div className="fix-grid" style={{ display:"grid", gridTemplateColumns:"repeat(12,1fr)", gridAutoRows:"80px", gap:"2px", background:"#111", padding:"2px" }}>
+        {tiles.map((tile) => {
+          const g = TILE_GRID[tile.type];
+          return (
+            <div
+              key={tile.id}
+              className={`fix-tile t-${tile.type}`}
+              style={{
+                gridColumn: g.col,
+                gridRow: g.row,
+                background: tile.accent ? "rgba(192,57,43,0.12)" : "#0a0a0a",
+              }}
+            >
+              <div>
+                <div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"0.6rem", letterSpacing:"0.3em", color:"#c0392b", textTransform:"uppercase", marginBottom:"10px" }}>{tile.category}</div>
+                <h2 style={{ margin:0, fontFamily:"'Anton','Impact',sans-serif", fontSize:g.titleSize, color:"#fff", textTransform:"uppercase", letterSpacing:"0.02em", lineHeight:1.05 }}>{tile.title}</h2>
+                {tile.body && (
+                  <p style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"0.78rem", color:"rgba(255,255,255,0.4)", marginTop:"10px", lineHeight:1.6, maxWidth:"380px" }}>{tile.body}</p>
+                )}
+              </div>
+              <div className="fix-num">{String(tile.id).padStart(2,"0")}</div>
+              <div className="fix-arrow">→</div>
+            </div>
+          );
+        })}
+      </div>
+      </div>
+
+      <div style={{ height:"60px" }} />
+    </div>
+  );
+}
+
+// ─── FluencyPage ───────────────────────────────────────────────────────────────
+function FluencyPage({ fluency, onBack }: { fluency: HpContent["fluency"]; onBack: () => void }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "#0a0a0a", overflowY: "auto", animation: "fadeIn 1s ease", WebkitOverflowScrolling: "touch" }}>
+      <button onClick={onBack} style={{ position: "fixed", top: "20px", left: "20px", zIndex: 60, background: "none", border: "none", color: "rgba(255,255,255,0.35)", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.3em", textTransform: "uppercase", cursor: "pointer", transition: "color 0.2s" }}
+        onMouseEnter={e => e.currentTarget.style.color = "#fff"} onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.35)"}>← BACK</button>
+
+      {/* Hero */}
+      <div style={{ padding: "clamp(72px,12vw,130px) clamp(20px,5vw,64px) clamp(36px,5vw,64px)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.35em", color: "#c0392b", textTransform: "uppercase", marginBottom: "18px" }}>{fluency.eyebrow}</div>
+        <h1 style={{ margin: 0, lineHeight: 0.88 }}>
+          <span style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(3.5rem,13vw,12rem)", color: "#fff" }}>FLU</span>
+          <span style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(3.5rem,13vw,12rem)", color: "transparent", WebkitTextStroke: "1.5px rgba(255,255,255,0.2)" }}>ENCY</span>
+        </h1>
+        <p style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "clamp(12px,1.4vw,15px)", color: "rgba(255,255,255,0.35)", letterSpacing: "0.04em", marginTop: "24px", maxWidth: "420px", lineHeight: 1.65 }}>{fluency.subtitle}</p>
+      </div>
+
+      {/* Language cards */}
+      <div style={{ padding: "clamp(40px,6vw,80px) clamp(20px,5vw,64px)" }}>
+        <h2 style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(0.9rem,1.8vw,1.2rem)", color: "rgba(255,255,255,0.25)", letterSpacing: "0.35em", textTransform: "uppercase", margin: "0 0 36px" }}>{fluency.sectionHeading}</h2>
+        {fluency.languages.map((lang, i) => (
+          <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "28px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+              <div>
+                <div style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(1.4rem,4vw,2.4rem)", color: "#fff", lineHeight: 1 }}>{lang.name}</div>
+                <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "14px", color: "rgba(255,255,255,0.3)", marginTop: "4px" }}>{lang.native}</div>
+              </div>
+              <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.25em", color: "#c0392b", textTransform: "uppercase", paddingTop: "6px" }}>{lang.levelLabel}</div>
+            </div>
+            <div style={{ height: "1px", background: "rgba(255,255,255,0.08)", position: "relative" }}>
+              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${lang.percent}%`, background: "#c0392b" }} />
+            </div>
+            {lang.levelText && <p style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "clamp(12px,1.3vw,14px)", color: "rgba(255,255,255,0.28)", marginTop: "12px", lineHeight: 1.65, maxWidth: "520px" }}>{lang.levelText}</p>}
+          </div>
+        ))}
+      </div>
+
+      {/* Pull quote */}
+      {(fluency.quote || fluency.attribution) && (
+        <div style={{ padding: "clamp(40px,6vw,80px) clamp(20px,5vw,64px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <blockquote style={{ margin: 0, borderLeft: "2px solid #c0392b", paddingLeft: "24px" }}>
+            <p style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(1.1rem,2.8vw,1.9rem)", color: "#fff", margin: "0 0 12px", lineHeight: 1.2 }}>{fluency.quote}</p>
+            <cite style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.2em", color: "rgba(255,255,255,0.25)", fontStyle: "normal" }}>{fluency.attribution}</cite>
+          </blockquote>
+        </div>
+      )}
+      <div style={{ height: "80px" }} />
+    </div>
+  );
 }
 
 export default function Gallery3D() {
-  const bgRef = useRef<HTMLDivElement>(null);
-  const mouseRef = useRef({ x: 0, y: 0 });
-  const currentShiftRef = useRef({ x: 0, y: 0 });
-  const rafRef = useRef<number | null>(null);
-  const [activePanel, setActivePanel] = useState<Panel | null>(null);
-  const [zoomingId, setZoomingId] = useState<number | null>(null);
-  const [hoveredPanel, setHoveredPanel] = useState<number | null>(null);
-  const [cursorPos, setCursorPos] = useState({ x: -100, y: -100 });
-  const [activeNav, setActiveNav] = useState("PLAYGROUND");
-  const [shuffleActive, setShuffleActive] = useState(false);
-  const [panelOrder, setPanelOrder] = useState(PANELS.map((_, i) => i));
+  const [content, setContent] = useState<HpContent>(DEFAULT_CONTENT);
+  const [activeNav, setActiveNav] = useState("");
+  const [showContact, setShowContact] = useState(false);
+  const [showFixations, setShowFixations] = useState(false);
+  const [showFluency, setShowFluency] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwValue, setPwValue] = useState("");
+  const [pwShake, setPwShake] = useState(false);
+  const canvasRef = useSparkleCanvas();
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    const nx = (e.clientX / window.innerWidth - 0.5) * 2;
-    const ny = (e.clientY / window.innerHeight - 0.5) * 2;
-    mouseRef.current = { x: nx, y: ny };
-    setCursorPos({ x: e.clientX, y: e.clientY });
-  }, []);
+  useEffect(() => { setContent(loadContent()); }, []);
 
-  const animate = useCallback(() => {
-    const bg = bgRef.current;
-    if (!bg) return;
-
-    // Full head-turn effect: mouse at the far edge shifts the room 100px horizontally
-    // and 70px vertically. The bgRef div uses inset:-15% (~200px buffer) so edges
-    // never appear. Lerp at 0.08 makes it feel alive without being jerky.
-    const targetX = mouseRef.current.x * -100;
-    const targetY = mouseRef.current.y * -70;
-
-    currentShiftRef.current.x = lerp(currentShiftRef.current.x, targetX, 0.08);
-    currentShiftRef.current.y = lerp(currentShiftRef.current.y, targetY, 0.08);
-
-    bg.style.transform = `translate(${currentShiftRef.current.x}px, ${currentShiftRef.current.y}px)`;
-
-    rafRef.current = requestAnimationFrame(animate);
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener("mousemove", handleMouseMove);
-    rafRef.current = requestAnimationFrame(animate);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [handleMouseMove, animate]);
-
-  const handlePanelClick = (panel: Panel) => {
-    if (activePanel) return;
-    setZoomingId(panel.id);
-    setTimeout(() => {
-      setActivePanel(panel);
-      setZoomingId(null);
-    }, 600);
+  const handleNavItem = (item: MenuItem) => {
+    setActiveNav(item.label);
+    setShowContact(item.target === "contact");
+    setShowFixations(item.target === "fixations");
+    setShowFluency(item.target === "fluency");
   };
 
-  const handleClose = () => setActivePanel(null);
+  const handleSecretClick = () => setShowPasswordModal(true);
 
-  const handleShuffle = () => {
-    setShuffleActive(true);
-    const shuffled = [...panelOrder].sort(() => Math.random() - 0.5);
-    setPanelOrder(shuffled);
-    setTimeout(() => setShuffleActive(false), 600);
+  const handlePwSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwValue === "hasan") {
+      setShowPasswordModal(false);
+      setPwValue("");
+      setShowAdmin(true);
+    } else {
+      setPwShake(true);
+      setPwValue("");
+      setTimeout(() => setPwShake(false), 500);
+    }
   };
-
-  const orderedPanels = panelOrder.map((i) => PANELS[i]);
 
   return (
     <div
       style={{
         width: "100vw",
-        height: "100vh",
+        height: "100dvh",
         overflow: "hidden",
-        background: "#f0eeeb",
         position: "relative",
+        backgroundImage: "url('/room.png')",
+        backgroundSize: "cover",
+        backgroundPosition: "center center",
+        backgroundRepeat: "no-repeat",
       }}
     >
-      {/* Custom cursor */}
+      {/* Header + Nav */}
       <div
-        className={`custom-cursor ${hoveredPanel !== null ? "hovering" : ""}`}
-        style={{
-          left: cursorPos.x,
-          top: cursorPos.y,
-          background: "#1a1a1a",
-          mixBlendMode: "normal",
-        }}
-      />
-      <div
-        className="cursor-trail"
-        style={{
-          left: cursorPos.x,
-          top: cursorPos.y,
-          borderColor: "rgba(0,0,0,0.25)",
-        }}
-      />
-
-      {/* ── BACKGROUND LAYER — oversized so 100px pan never reveals an edge ── */}
-      <div
-        ref={bgRef}
-        style={{
-          position: "absolute",
-          inset: "-15%",
-          zIndex: 0,
-          pointerEvents: "none",
-          willChange: "transform",
-          backgroundImage: "url('/room.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center center",
-          backgroundRepeat: "no-repeat",
-        }}
-      />
-
-      {/* Header: Name */}
-      <header
         style={{
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
           zIndex: 10,
-          textAlign: "center",
-          paddingTop: "20px",
-          pointerEvents: "none",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          paddingTop: "60px",
+          gap: "12px",
         }}
       >
         <div
           style={{
             fontFamily: "'Anton', 'Impact', sans-serif",
-            fontSize: "clamp(3rem, 9vw, 9rem)",
+            fontSize: "clamp(1.5rem, 7vw, 9rem)",
             lineHeight: 0.9,
-            color: "#1a1a1a",
+            color: "#ffffff",
             letterSpacing: "-0.02em",
             textTransform: "uppercase",
             userSelect: "none",
+            textAlign: "center",
+            padding: "0 12px",
           }}
         >
-          HASAN&apos;S PLAYGROUND
+          {(() => {
+            const t = content.home.title;
+            const gi = t.toUpperCase().indexOf("G");
+            if (gi < 0) return <span style={{ pointerEvents: "none" }}>{t}</span>;
+            return (
+              <>
+                <span style={{ pointerEvents: "none" }}>{t.slice(0, gi)}</span>
+                <span onClick={handleSecretClick} style={{ cursor: "default", pointerEvents: "all" }}>{t[gi]}</span>
+                <span style={{ pointerEvents: "none" }}>{t.slice(gi + 1)}</span>
+              </>
+            );
+          })()}
         </div>
-      </header>
 
-      {/* Nav */}
+      </div>
+
+      {/* Vertical nav — centered in the page */}
       <nav
         style={{
           position: "absolute",
-          top: "clamp(80px, 12vw, 130px)",
-          left: 0,
-          right: 0,
-          zIndex: 10,
-          display: "flex",
-          justifyContent: "center",
-          gap: "clamp(16px, 2.5vw, 40px)",
-          pointerEvents: "all",
-        }}
-      >
-        {NAV_LINKS.map((link) => (
-          <button
-            key={link}
-            onClick={() => setActiveNav(link)}
-            style={{
-              background: "none",
-              border: "none",
-              fontFamily: "'Barlow Condensed', 'Oswald', sans-serif",
-              fontSize: "clamp(9px, 1.1vw, 13px)",
-              letterSpacing: "0.18em",
-              fontWeight: 600,
-              color: activeNav === link ? "#1a1a1a" : "rgba(0,0,0,0.4)",
-              textTransform: "uppercase",
-              cursor: "none",
-              padding: "4px 2px",
-              paddingBottom: "6px",
-              transition: "color 0.3s ease",
-              borderBottom: activeNav === link ? "1px solid #CC0000" : "1px solid transparent",
-            }}
-          >
-            {link}
-          </button>
-        ))}
-      </nav>
-
-      {/* ── PANEL LAYER — static 3D, never moves with mouse ── */}
-      <div
-        style={{
-          position: "absolute",
           inset: 0,
-          perspective: "1000px",
-          perspectiveOrigin: "50% 44%",
-          zIndex: 3,
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            transformStyle: "preserve-3d",
-          }}
-        >
-          {orderedPanels.map((panel, idx) => {
-            const layout = PANEL_LAYOUT[idx];
-            const isZooming = zoomingId === panel.id;
-            const isHovered = hoveredPanel === panel.id;
-            const hoverScale = isZooming ? 3 : isHovered ? 1.04 : 1;
-
-            return (
-              // Outer wrapper: owns the 3D transform, click, hover state
-              <div
-                key={panel.id}
-                onClick={() => handlePanelClick(panel)}
-                onMouseEnter={() => setHoveredPanel(panel.id)}
-                onMouseLeave={() => setHoveredPanel(null)}
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  width: `${layout.w}px`,
-                  height: `${layout.h}px`,
-                  transform: `
-                    translate(-50%, -50%)
-                    translateX(${layout.tx})
-                    translateY(${layout.ty})
-                    translateZ(${layout.tz}px)
-                    rotateY(${layout.ry}deg)
-                    scale(${hoverScale})
-                  `,
-                  transformStyle: "preserve-3d",
-                  transition: isZooming
-                    ? "transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.6s ease"
-                    : shuffleActive
-                    ? "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)"
-                    : "transform 0.3s ease",
-                  opacity: isZooming ? 0 : 1,
-                  cursor: "none",
-                  zIndex: isHovered ? 5 : 1,
-                }}
-              >
-                {/* Hanging wire — outside the overflow:hidden image container */}
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "100%",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    width: "2px",
-                    height: "80px",
-                    background: "#1a1a1a",
-                    opacity: 0.3,
-                  }}
-                />
-
-                {/* Inner image container — overflow:hidden only clips photo/labels */}
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    borderRadius: "3px",
-                    overflow: "hidden",
-                    boxShadow: isHovered
-                      ? "0 20px 50px rgba(0,0,0,0.25), 0 6px 16px rgba(0,0,0,0.12)"
-                      : "0 8px 30px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.09)",
-                    transition: "box-shadow 0.3s ease",
-                  }}
-                >
-                {/* Photo */}
-                <img
-                  src={panel.src}
-                  alt={panel.title}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    display: "block",
-                    filter: isHovered ? "brightness(1.06)" : "brightness(0.9)",
-                    transition: "filter 0.3s ease",
-                  }}
-                  draggable={false}
-                />
-
-                {/* Bottom label gradient */}
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.72) 100%)",
-                    opacity: isHovered ? 1 : 0.85,
-                    transition: "opacity 0.3s ease",
-                  }}
-                />
-
-                {/* Red top accent — thin line that stays */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "2px",
-                    background: "#CC0000",
-                    opacity: isHovered ? 1 : 0.7,
-                    transition: "opacity 0.3s ease",
-                  }}
-                />
-
-                {/* Label */}
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    padding: "12px 14px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontFamily: "'Barlow Condensed', sans-serif",
-                      fontSize: "10px",
-                      letterSpacing: "0.22em",
-                      color: "#CC0000",
-                      textTransform: "uppercase",
-                      marginBottom: "3px",
-                    }}
-                  >
-                    {panel.category}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: "'Anton', sans-serif",
-                      fontSize: "16px",
-                      color: "#ffffff",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      lineHeight: 1,
-                    }}
-                  >
-                    {panel.title}
-                  </div>
-                </div>
-
-                {/* Hover view indicator */}
-                {isHovered && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "44px",
-                        height: "44px",
-                        border: "1.5px solid rgba(255,255,255,0.8)",
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backdropFilter: "blur(6px)",
-                        background: "rgba(255,255,255,0.12)",
-                        animation: "pulse 1.5s ease-in-out infinite",
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <polygon points="2,1 11,6 2,11" fill="rgba(255,255,255,0.9)" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <footer
-        style={{
-          position: "absolute",
-          bottom: "28px",
-          left: 0,
-          right: 0,
           zIndex: 10,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "10px",
-          pointerEvents: "all",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "'Barlow Condensed', sans-serif",
-            fontSize: "10px",
-            letterSpacing: "0.3em",
-            color: "rgba(0,0,0,0.4)",
-            textTransform: "uppercase",
-          }}
-        >
-          EXPLORE ALL PROJECTS
-        </div>
-        <button
-          onClick={handleShuffle}
-          style={{
-            background: "transparent",
-            border: "1px solid rgba(0,0,0,0.35)",
-            color: "#1a1a1a",
-            fontFamily: "'Barlow Condensed', sans-serif",
-            fontSize: "11px",
-            letterSpacing: "0.3em",
-            textTransform: "uppercase",
-            padding: "10px 36px",
-            cursor: "none",
-            transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease",
-            borderRadius: "1px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(204,0,0,0.06)";
-            e.currentTarget.style.borderColor = "#CC0000";
-            e.currentTarget.style.color = "#CC0000";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.borderColor = "rgba(0,0,0,0.35)";
-            e.currentTarget.style.color = "#1a1a1a";
-          }}
-        >
-          SHUFFLE
-        </button>
-      </footer>
-
-      {/* Fullscreen overlay */}
-      {activePanel && (
-        <FullscreenOverlay panel={activePanel} onClose={handleClose} />
-      )}
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 0.85; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.06); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(24px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function FullscreenOverlay({ panel, onClose }: { panel: Panel; onClose: () => void }) {
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        background: "rgba(240,238,235,0.96)",
-        backdropFilter: "blur(12px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        animation: "fadeIn 0.35s ease",
-        cursor: "default",
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          position: "relative",
-          maxWidth: "88vw",
-          maxHeight: "82vh",
-          animation: "slideUp 0.35s ease",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <img
-          src={panel.src}
-          alt={panel.title}
-          style={{
-            width: "100%",
-            height: "auto",
-            maxHeight: "72vh",
-            objectFit: "contain",
-            display: "block",
-            borderRadius: "2px",
-            boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
-          }}
-        />
-        {/* Red top accent */}
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "#CC0000" }} />
-
-        {/* Info */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            padding: "20px 24px",
-            background: "linear-gradient(transparent, rgba(0,0,0,0.85))",
-            borderRadius: "0 0 2px 2px",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "'Barlow Condensed', sans-serif",
-              fontSize: "11px",
-              letterSpacing: "0.25em",
-              color: "#CC0000",
-              textTransform: "uppercase",
-              marginBottom: "4px",
-            }}
-          >
-            {panel.category}
-          </div>
-          <div
-            style={{
-              fontFamily: "'Anton', sans-serif",
-              fontSize: "clamp(20px, 3vw, 36px)",
-              color: "#fff",
-              textTransform: "uppercase",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {panel.title}
-          </div>
-        </div>
-      </div>
-
-      {/* Close */}
-      <button
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          top: "28px",
-          right: "32px",
-          background: "none",
-          border: "1px solid rgba(0,0,0,0.25)",
-          color: "#1a1a1a",
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontSize: "11px",
-          letterSpacing: "0.25em",
-          textTransform: "uppercase",
-          padding: "8px 20px",
-          cursor: "pointer",
-          transition: "border-color 0.2s ease, color 0.2s ease",
-          borderRadius: "1px",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "#CC0000";
-          e.currentTarget.style.color = "#CC0000";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "rgba(0,0,0,0.25)";
-          e.currentTarget.style.color = "#1a1a1a";
-        }}
-      >
-        ← BACK
-      </button>
-
-      <div
-        style={{
-          position: "absolute",
-          bottom: "28px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontSize: "10px",
-          letterSpacing: "0.3em",
-          color: "rgba(0,0,0,0.3)",
-          textTransform: "uppercase",
+          justifyContent: "center",
+          gap: "clamp(8px, 2vh, 20px)",
           pointerEvents: "none",
         }}
       >
-        CLICK OUTSIDE OR PRESS ESC TO CLOSE
-      </div>
+        {content.home.menuItems.map((item) => (
+          <button
+            key={item.label}
+            onClick={() => handleNavItem(item)}
+            style={{
+              background: "none",
+              border: "none",
+              fontFamily: "'Barlow Condensed', 'Oswald', sans-serif",
+              fontSize: "clamp(28px, 5vw, 56px)",
+              letterSpacing: "0.25em",
+              fontWeight: 600,
+              color: activeNav === item.label ? "#ffffff" : "rgba(255,255,255,0.4)",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              padding: "6px 0",
+              transition: "color 0.3s ease, letter-spacing 0.3s ease",
+              borderBottom: activeNav === item.label ? "1px solid #CC0000" : "1px solid transparent",
+              minHeight: "44px",
+              display: "flex",
+              alignItems: "center",
+              pointerEvents: "all",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#ffffff";
+              e.currentTarget.style.letterSpacing = "0.35em";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = activeNav === item.label ? "#ffffff" : "rgba(255,255,255,0.4)";
+              e.currentTarget.style.letterSpacing = "0.25em";
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+
+      {/* Sparkle canvas — desktop only, sits above everything */}
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 999,
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* Fluency page */}
+      {showFluency && (
+        <FluencyPage fluency={content.fluency} onBack={() => { setShowFluency(false); setActiveNav(""); }} />
+      )}
+
+      {/* Fixations page */}
+      {showFixations && (
+        <FixationsPage tiles={content.fixations} onBack={() => { setShowFixations(false); setActiveNav(""); }} />
+      )}
+
+      {/* Contact overlay */}
+      {showContact && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "#000", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "32px", animation: "fadeIn 1.4s ease" }}>
+          <a
+            href={`mailto:${content.contact.email}`}
+            style={{ fontFamily: "'Anton', 'Impact', sans-serif", fontSize: "clamp(1.2rem, 4vw, 3rem)", color: "#ffffff", textDecoration: "none", letterSpacing: "0.05em", transition: "color 0.2s ease" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#9b59b6")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "#ffffff")}
+          >
+            {content.contact.email}
+          </a>
+          <button
+            onClick={() => { setShowContact(false); setActiveNav(""); }}
+            style={{ background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "rgba(255,255,255,0.5)", fontFamily: "'Barlow Condensed', sans-serif", fontSize: "11px", letterSpacing: "0.3em", textTransform: "uppercase", padding: "10px 28px", cursor: "pointer", transition: "border-color 0.2s ease, color 0.2s ease", borderRadius: "1px" }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#9b59b6"; e.currentTarget.style.color = "#9b59b6"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.3)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
+          >
+            ← BACK
+          </button>
+        </div>
+      )}
+
+      {/* Password modal */}
+      {showPasswordModal && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowPasswordModal(false); setPwValue(""); } }}
+          style={{ position: "fixed", inset: 0, zIndex: 8999, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <form onSubmit={handlePwSubmit}>
+            <input
+              type="password"
+              value={pwValue}
+              onChange={e => setPwValue(e.target.value)}
+              placeholder="—"
+              autoFocus
+              style={{
+                background: "transparent",
+                border: "none",
+                borderBottom: "1px solid rgba(255,255,255,0.18)",
+                color: "#fff",
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "28px",
+                letterSpacing: "0.6em",
+                textAlign: "center",
+                width: "220px",
+                outline: "none",
+                padding: "14px 0",
+                animation: pwShake ? "shake 0.45s ease" : "none",
+              }}
+            />
+          </form>
+        </div>
+      )}
+
+      {/* Admin panel */}
+      {showAdmin && (
+        <AdminPanel
+          content={content}
+          onSave={(c) => setContent(c)}
+          onClose={() => setShowAdmin(false)}
+        />
+      )}
+
+      <style>{`
+        @media (hover: hover) { *, *::before, *::after { cursor: none !important; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes shake {
+          0%,100% { transform: translateX(0); }
+          20%     { transform: translateX(-10px); }
+          40%     { transform: translateX(10px); }
+          60%     { transform: translateX(-6px); }
+          80%     { transform: translateX(6px); }
+        }
+      `}</style>
     </div>
   );
 }
