@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import type { HpContent, FixArticle, Language, MenuItem, TileType } from "@/lib/content";
 import { saveContent } from "@/lib/content";
+import type { GraphNode, GraphLink } from "@/lib/fluencyData";
+import { loadNodes, loadLinks, saveGraph, DEFAULT_NODES, DEFAULT_LINKS } from "@/lib/fluencyData";
 
 // ─── shared input styles ───────────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -400,13 +402,290 @@ function ContactEditor({ draft, setDraft }: { draft: HpContent; setDraft: React.
   );
 }
 
+// ─── GraphEditor ───────────────────────────────────────────────────────────────
+const NODE_TYPES: GraphNode["type"][] = ["root", "cat", "skill", "job"];
+
+const BLANK_NODE: GraphNode = { id: "", label: "", type: "skill", r: 20, info: { sub: "", desc: "" } };
+
+function GraphEditor() {
+  const [nodes, setNodes] = useState<GraphNode[]>(() => loadNodes());
+  const [links, setLinks] = useState<GraphLink[]>(() => loadLinks());
+  const [tab, setTab] = useState<"nodes" | "links">("nodes");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<GraphNode | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const [newLink, setNewLink] = useState<{ s: string; t: string; x: boolean }>({ s: "", t: "", x: false });
+  const [error, setError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const persist = (n: GraphNode[], l: GraphLink[]) => {
+    setNodes(n); setLinks(l);
+    saveGraph(n, l);
+    setError("");
+  };
+
+  // ── node handlers ──────────────────────────────────────────────────────────
+  const selectNode = (id: string) => {
+    const node = nodes.find(n => n.id === id);
+    if (!node) return;
+    setSelectedId(id);
+    setDraft(JSON.parse(JSON.stringify(node)));
+    setIsNew(false);
+    setError("");
+    setConfirmDeleteId(null);
+  };
+
+  const startNewNode = () => {
+    setDraft({ ...BLANK_NODE });
+    setIsNew(true);
+    setSelectedId(null);
+    setError("");
+    setConfirmDeleteId(null);
+  };
+
+  const saveNode = () => {
+    if (!draft) return;
+    const id = draft.id.trim();
+    if (!id)                         { setError("ID is required."); return; }
+    if (/\s/.test(id))               { setError("ID must not contain spaces."); return; }
+    if (isNew && nodes.find(n => n.id === id)) { setError(`ID "${id}" already exists.`); return; }
+    if (!draft.label.trim())         { setError("Label is required."); return; }
+    const cleaned = { ...draft, id, label: draft.label.trim() };
+    const next = isNew ? [...nodes, cleaned] : nodes.map(n => n.id === id ? cleaned : n);
+    persist(next, links);
+    setSelectedId(id);
+    setIsNew(false);
+  };
+
+  const deleteNode = (id: string) => {
+    const nodeLinks = links.filter(l => l.s === id || l.t === id);
+    if (nodeLinks.length > 0 && confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      setError(`This node has ${nodeLinks.length} link(s). Click DELETE again to remove it and all its links.`);
+      return;
+    }
+    persist(nodes.filter(n => n.id !== id), links.filter(l => l.s !== id && l.t !== id));
+    setDraft(null); setSelectedId(null); setIsNew(false); setConfirmDeleteId(null);
+  };
+
+  // ── link handlers ──────────────────────────────────────────────────────────
+  const addLink = () => {
+    if (!newLink.s || !newLink.t)                                  { setError("Both source and target are required."); return; }
+    if (newLink.s === newLink.t)                                   { setError("Source and target must be different nodes."); return; }
+    if (links.find(l => l.s === newLink.s && l.t === newLink.t))  { setError("That link already exists."); return; }
+    persist(nodes, [...links, { ...newLink }]);
+    setNewLink({ s: "", t: "", x: false });
+  };
+
+  const deleteLink = (i: number) => persist(nodes, links.filter((_, j) => j !== i));
+
+  const resetToDefaults = () => {
+    if (!confirm("Reset graph to default nodes and links? This cannot be undone.")) return;
+    persist(JSON.parse(JSON.stringify(DEFAULT_NODES)), JSON.parse(JSON.stringify(DEFAULT_LINKS)));
+    setDraft(null); setSelectedId(null); setIsNew(false); setError("");
+  };
+
+  // ── shared row style ───────────────────────────────────────────────────────
+  const rowStyle = (active: boolean): React.CSSProperties => ({
+    padding: "10px 16px", borderBottom: "1px solid #111", cursor: "pointer",
+    background: active ? "rgba(192,57,43,0.1)" : "transparent",
+    borderLeft: active ? "2px solid #c0392b" : "2px solid transparent",
+  });
+
+  return (
+    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+
+      {/* ── Left panel ─────────────────────────────────────────────────────── */}
+      <div style={{ width: "240px", borderRight: "1px solid #1a1a1a", display: "flex", flexDirection: "column", flexShrink: 0, overflow: "hidden" }}>
+
+        {/* Sub-tab bar */}
+        <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          {(["nodes", "links"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => { setTab(t); setDraft(null); setIsNew(false); setError(""); setConfirmDeleteId(null); }}
+              style={{ flex: 1, padding: "12px 8px", background: "none", border: "none", marginBottom: "-1px", borderBottom: tab === t ? "2px solid #c0392b" : "2px solid transparent", color: tab === t ? "#fff" : "rgba(255,255,255,0.3)", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", cursor: "pointer" }}
+            >{t}</button>
+          ))}
+        </div>
+
+        {/* List */}
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {tab === "nodes" && (
+            <>
+              <div style={{ padding: "10px 12px", borderBottom: "1px solid #1a1a1a" }}>
+                <button
+                  onClick={startNewNode}
+                  style={{ width: "100%", background: "none", border: "1px solid #c0392b", color: "#c0392b", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", padding: "7px", cursor: "pointer" }}
+                >+ New Node</button>
+              </div>
+              {nodes.map(n => (
+                <div key={n.id} onClick={() => selectNode(n.id)} style={rowStyle(selectedId === n.id && !isNew)}>
+                  <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "9px", letterSpacing: "0.25em", color: "#c0392b", marginBottom: "2px" }}>{n.type.toUpperCase()} · r{n.r}</div>
+                  <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "13px", color: "#fff", lineHeight: 1.2 }}>{n.label}</div>
+                  <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "9px", color: "rgba(255,255,255,0.25)", marginTop: "2px" }}>{n.id}</div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {tab === "links" && (
+            <>
+              {links.map((l, i) => (
+                <div key={`${l.s}>${l.t}`} style={{ padding: "10px 14px 10px 16px", borderBottom: "1px solid #111", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "12px", color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.s} → {l.t}</div>
+                    <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "9px", letterSpacing: "0.2em", color: l.x ? "#c0392b" : "rgba(255,255,255,0.25)", marginTop: "2px" }}>{l.x ? "CROSS" : "DIRECT"}</div>
+                  </div>
+                  <button onClick={() => deleteLink(i)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: "16px", cursor: "pointer", padding: "0 4px", flexShrink: 0, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Reset button */}
+        <div style={{ borderTop: "1px solid #1a1a1a", padding: "10px 12px", flexShrink: 0 }}>
+          <button
+            onClick={resetToDefaults}
+            style={{ width: "100%", background: "none", border: "1px solid #2a2a2a", color: "rgba(255,255,255,0.2)", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.2em", textTransform: "uppercase", padding: "6px", cursor: "pointer" }}
+          >Reset Defaults</button>
+        </div>
+      </div>
+
+      {/* ── Right panel ────────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+
+        {/* Error / warning banner */}
+        {error && (
+          <div style={{ background: "rgba(192,57,43,0.12)", borderBottom: "1px solid rgba(192,57,43,0.3)", padding: "10px 24px", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "12px", color: "#e74c3c", letterSpacing: "0.05em" }}>
+            {error}
+          </div>
+        )}
+
+        {/* ── Node form ── */}
+        {tab === "nodes" && draft && (
+          <div style={{ padding: "24px 28px" }}>
+            <div style={fg}>
+              <label style={lbl}>Node ID {isNew ? "" : "(read-only)"}</label>
+              <input
+                style={{ ...inp, color: isNew ? "#fff" : "rgba(255,255,255,0.35)", cursor: isNew ? "text" : "default" }}
+                value={draft.id}
+                readOnly={!isNew}
+                onChange={e => isNew && setDraft(p => p && ({ ...p, id: e.target.value.replace(/\s/g, "") }))}
+                onFocus={isNew ? onF : undefined} onBlur={isNew ? onB : undefined}
+                placeholder="unique-id-no-spaces"
+              />
+            </div>
+            <div style={fg}>
+              <label style={lbl}>Label</label>
+              <input style={inp} value={draft.label} onChange={e => setDraft(p => p && ({ ...p, label: e.target.value }))} onFocus={onF} onBlur={onB} />
+            </div>
+            <div style={{ ...fg, display: "flex", gap: "12px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Type</label>
+                <select
+                  style={inp}
+                  value={draft.type}
+                  onChange={e => setDraft(p => p && ({ ...p, type: e.target.value as GraphNode["type"] }))}
+                  onFocus={onF} onBlur={onB}
+                >
+                  {NODE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Radius (r)</label>
+                <input
+                  style={inp} type="number" min={8} max={80}
+                  value={draft.r}
+                  onChange={e => setDraft(p => p && ({ ...p, r: Number(e.target.value) }))}
+                  onFocus={onF} onBlur={onB}
+                />
+              </div>
+            </div>
+            <div style={fg}>
+              <label style={lbl}>Sub-label</label>
+              <input style={inp} value={draft.info.sub ?? ""} onChange={e => setDraft(p => p && ({ ...p, info: { ...p.info, sub: e.target.value } }))} onFocus={onF} onBlur={onB} placeholder="e.g. Design tool · 2020–Present" />
+            </div>
+            <div style={fg}>
+              <label style={lbl}>Description</label>
+              <textarea style={txt} value={draft.info.desc} onChange={e => setDraft(p => p && ({ ...p, info: { ...p.info, desc: e.target.value } }))} onFocus={onF} onBlur={onB} />
+            </div>
+
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button
+                onClick={saveNode}
+                style={{ background: "#c0392b", border: "none", color: "#fff", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.25em", textTransform: "uppercase", padding: "9px 24px", cursor: "pointer" }}
+              >{isNew ? "ADD NODE" : "SAVE NODE"}</button>
+              {!isNew && (
+                <button
+                  onClick={() => deleteNode(draft.id)}
+                  style={{ background: "none", border: "none", color: confirmDeleteId === draft.id ? "#e74c3c" : "rgba(255,255,255,0.25)", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.2em", textTransform: "uppercase", cursor: "pointer", padding: "9px 0" }}
+                >{confirmDeleteId === draft.id ? "× CONFIRM DELETE" : "× DELETE"}</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "nodes" && !draft && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "rgba(255,255,255,0.15)", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "13px", letterSpacing: "0.3em" }}>
+            SELECT A NODE OR ADD NEW
+          </div>
+        )}
+
+        {/* ── Add link form ── */}
+        {tab === "links" && (
+          <div style={{ padding: "24px 28px" }}>
+            <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.3em", color: "rgba(255,255,255,0.3)", textTransform: "uppercase", marginBottom: "20px" }}>Add Link</div>
+            <div style={{ ...fg, display: "flex", gap: "12px" }}>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Source</label>
+                <select style={inp} value={newLink.s} onChange={e => setNewLink(p => ({ ...p, s: e.target.value }))} onFocus={onF} onBlur={onB}>
+                  <option value="">— select —</option>
+                  {nodes.map(n => <option key={n.id} value={n.id}>{n.label} ({n.id})</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={lbl}>Target</label>
+                <select style={inp} value={newLink.t} onChange={e => setNewLink(p => ({ ...p, t: e.target.value }))} onFocus={onF} onBlur={onB}>
+                  <option value="">— select —</option>
+                  {nodes.filter(n => n.id !== newLink.s).map(n => <option key={n.id} value={n.id}>{n.label} ({n.id})</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ ...fg }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "12px", letterSpacing: "0.2em", color: "rgba(255,255,255,0.5)" }}>
+                <input
+                  type="checkbox" checked={newLink.x}
+                  onChange={e => setNewLink(p => ({ ...p, x: e.target.checked }))}
+                  style={{ accentColor: "#c0392b", width: "14px", height: "14px" }}
+                />
+                CROSS-CONNECTION (dashed line)
+              </label>
+            </div>
+            <button
+              onClick={addLink}
+              style={{ background: "#c0392b", border: "none", color: "#fff", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.25em", textTransform: "uppercase", padding: "9px 24px", cursor: "pointer" }}
+            >ADD LINK</button>
+
+            <div style={{ marginTop: "32px", fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.3em", color: "rgba(255,255,255,0.3)", textTransform: "uppercase", marginBottom: "10px" }}>
+              {links.length} link{links.length !== 1 ? "s" : ""} total · {links.filter(l => l.x).length} cross
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── AdminPanel ────────────────────────────────────────────────────────────────
-type Section = "home" | "fluency" | "fixations" | "contact";
+type Section = "home" | "fluency" | "fixations" | "contact" | "graph";
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "home",      label: "HOMEPAGE"  },
   { id: "fluency",   label: "FLUENCY"   },
   { id: "fixations", label: "FIXATIONS" },
   { id: "contact",   label: "CONTACT"   },
+  { id: "graph",     label: "GRAPH"     },
 ];
 
 export default function AdminPanel({
@@ -430,7 +709,7 @@ export default function AdminPanel({
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9000, background: "#0d0d0d", display: "flex", flexDirection: "column" }}>
+    <div data-admin style={{ position: "fixed", inset: 0, zIndex: 9000, background: "#0d0d0d", display: "flex", flexDirection: "column" }}>
 
       {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", padding: "0 24px", height: "52px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
@@ -461,11 +740,12 @@ export default function AdminPanel({
         </div>
 
         {/* Content area */}
-        <div style={{ flex: 1, overflowY: section === "fixations" ? "hidden" : "auto" }}>
+        <div style={{ flex: 1, overflowY: (section === "fixations" || section === "graph") ? "hidden" : "auto" }}>
           {section === "home"      && <HomeEditor      draft={draft} setDraft={setDraft} />}
           {section === "fluency"   && <FluencyEditor   draft={draft} setDraft={setDraft} />}
           {section === "fixations" && <FixationsEditor draft={draft} setDraft={setDraft} />}
           {section === "contact"   && <ContactEditor   draft={draft} setDraft={setDraft} />}
+          {section === "graph"     && <GraphEditor />}
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import AdminPanel from "./AdminPanel";
+import FluentGraph from "./FluentGraph";
 import { loadContent, DEFAULT_CONTENT, HpContent, FixArticle, TileType, MenuItem } from "@/lib/content";
 
 interface Particle {
@@ -199,35 +200,9 @@ function FluencyPage({ fluency, onBack }: { fluency: HpContent["fluency"]; onBac
         <p style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "clamp(12px,1.4vw,15px)", color: "rgba(255,255,255,0.35)", letterSpacing: "0.04em", marginTop: "24px", maxWidth: "420px", lineHeight: 1.65 }}>{fluency.subtitle}</p>
       </div>
 
-      {/* Language cards */}
-      <div style={{ padding: "clamp(40px,6vw,80px) clamp(20px,5vw,64px)" }}>
-        <h2 style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(0.9rem,1.8vw,1.2rem)", color: "rgba(255,255,255,0.25)", letterSpacing: "0.35em", textTransform: "uppercase", margin: "0 0 36px" }}>{fluency.sectionHeading}</h2>
-        {fluency.languages.map((lang, i) => (
-          <div key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "28px 0" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
-              <div>
-                <div style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(1.4rem,4vw,2.4rem)", color: "#fff", lineHeight: 1 }}>{lang.name}</div>
-                <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "14px", color: "rgba(255,255,255,0.3)", marginTop: "4px" }}>{lang.native}</div>
-              </div>
-              <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "10px", letterSpacing: "0.25em", color: "#c0392b", textTransform: "uppercase", paddingTop: "6px" }}>{lang.levelLabel}</div>
-            </div>
-            <div style={{ height: "1px", background: "rgba(255,255,255,0.08)", position: "relative" }}>
-              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${lang.percent}%`, background: "#c0392b" }} />
-            </div>
-            {lang.levelText && <p style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "clamp(12px,1.3vw,14px)", color: "rgba(255,255,255,0.28)", marginTop: "12px", lineHeight: 1.65, maxWidth: "520px" }}>{lang.levelText}</p>}
-          </div>
-        ))}
-      </div>
+      {/* Skills & Experience graph */}
+      <FluentGraph />
 
-      {/* Pull quote */}
-      {(fluency.quote || fluency.attribution) && (
-        <div style={{ padding: "clamp(40px,6vw,80px) clamp(20px,5vw,64px)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-          <blockquote style={{ margin: 0, borderLeft: "2px solid #c0392b", paddingLeft: "24px" }}>
-            <p style={{ fontFamily: "'Anton','Impact',sans-serif", fontSize: "clamp(1.1rem,2.8vw,1.9rem)", color: "#fff", margin: "0 0 12px", lineHeight: 1.2 }}>{fluency.quote}</p>
-            <cite style={{ fontFamily: "'Barlow Condensed',sans-serif", fontSize: "11px", letterSpacing: "0.2em", color: "rgba(255,255,255,0.25)", fontStyle: "normal" }}>{fluency.attribution}</cite>
-          </blockquote>
-        </div>
-      )}
       <div style={{ height: "80px" }} />
     </div>
   );
@@ -258,7 +233,7 @@ export default function Gallery3D() {
 
   const handlePwSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pwValue === "hasan") {
+    if (pwValue === "69420") {
       setShowPasswordModal(false);
       setPwValue("");
       setShowAdmin(true);
@@ -463,6 +438,7 @@ export default function Gallery3D() {
 
       <style>{`
         @media (hover: hover) { *, *::before, *::after { cursor: none !important; } }
+        @media (hover: hover) { [data-admin] *, [data-admin] *::before, [data-admin] *::after { cursor: auto !important; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes shake {
           0%,100% { transform: translateX(0); }
