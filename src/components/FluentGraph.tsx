@@ -263,12 +263,16 @@ function FluentGraphInner({ rawNodes, rawLinks }: { rawNodes: GraphNode[]; rawLi
     <div style={{ width: "100%" }}>
       <h2 style={{
         fontFamily: "'Anton','Impact',sans-serif",
-        fontSize: "clamp(0.9rem,1.8vw,1.2rem)",
-        color: "rgba(255,255,255,0.25)",
-        letterSpacing: "0.35em",
+        fontSize: "clamp(1.4rem,2.5vw,2rem)",
+        color: "#ffffff",
+        letterSpacing: "0.15em",
         textTransform: "uppercase",
         margin: "0 0 32px",
         padding: "clamp(40px,6vw,72px) clamp(20px,5vw,64px) 0",
+        textAlign: "center",
+        fontWeight: "bold",
+        WebkitFontSmoothing: "antialiased" as React.CSSProperties["WebkitFontSmoothing"],
+        MozOsxFontSmoothing: "grayscale" as React.CSSProperties["MozOsxFontSmoothing"],
       }}>
         Skills &amp; Experience
       </h2>
@@ -298,6 +302,17 @@ function FluentGraphInner({ rawNodes, rawLinks }: { rawNodes: GraphNode[]; rawLi
         textAlign: "center",
       }}>
         Click nodes to expand · drag to rearrange
+      </p>
+      <p style={{
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: "10px",
+        letterSpacing: "0.25em",
+        color: "rgba(255,255,255,0.2)",
+        textTransform: "uppercase",
+        margin: "6px 0 0",
+        textAlign: "center",
+      }}>
+        Scroll Down
       </p>
 
       <div style={{
